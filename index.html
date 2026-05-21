@@ -1156,15 +1156,40 @@ function autoFixFloats() {
       }
     }
     
+    // Szukaj też w kolumnach
+    for(let c=0;c<pn;c++){
+      let start=0,val=drawdown[0]?drawdown[0][c]:0;
+      for(let r=1;r<=pm;r++){
+        const cur=r<pm&&drawdown[r]?drawdown[r][c]:-1;
+        if(cur!==val){
+          const len=r-start;
+          if(len>maxFloat&&len>worstLen){
+            worstLen=len;
+            worstFloat={type:'col',c,rStart:start,rEnd:r-1,len};
+          }
+          start=r;val=cur;
+        }
+      }
+    }
     if(!worstFloat)break; // Wszystko naprawione!
     
     // Napraw – zmień środkową komórkę tie-up
-    const midC=Math.floor((worstFloat.cStart+worstFloat.cEnd)/2);
-    const shaft=threading[midC];
-    const treadle=treadling[worstFloat.r]%np;
-    if(shaft>=0&&shaft<ni){
-      tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
-      fixed++;
+    if(worstFloat.type==='row'){
+      const midC=Math.floor((worstFloat.cStart+worstFloat.cEnd)/2);
+      const shaft=threading[midC];
+      const treadle=treadling[worstFloat.r]%np;
+      if(shaft>=0&&shaft<ni){
+        tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
+        fixed++;
+      }
+    } else {
+      const midR=Math.floor((worstFloat.rStart+worstFloat.rEnd)/2);
+      const shaft=threading[worstFloat.c]||0;
+      const treadle=treadling[midR]%np;
+      if(shaft>=0&&shaft<ni){
+        tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
+        fixed++;
+      }
     }
     
     // Przelicz drawdown
