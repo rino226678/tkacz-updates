@@ -1,5 +1,5 @@
-<!-- version: 8 -->
 <!DOCTYPE html>
+<!-- version: 8 -->
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -104,6 +104,30 @@ canvas.editing { border-color: var(--accent2); box-shadow: 0 0 0 2px rgba(255,10
       <input type="number" id="nicielnice" value="8" min="2" max="32">
       <span class="tb-label">Pedały:</span>
       <input type="number" id="pedalyN" value="8" min="2" max="32">
+    </div>
+    <div class="tb-group">
+      <span class="tb-label">Tie-up:</span>
+      <select id="tieupType">
+        <option value="random">Losowy z biblioteki</option>
+        <option value="plain">Płócienny</option>
+        <option value="twill22">Skos 2/2</option>
+        <option value="twill31">Skos 3/1</option>
+        <option value="twill13">Skos 1/3</option>
+        <option value="twill21">Skos 2/1</option>
+        <option value="twill12">Skos 1/2</option>
+        <option value="hopsack">Płócienny 2/2</option>
+        <option value="satin">Satyna</option>
+        <option value="satin5">Satyna 5</option>
+        <option value="diamond">Romb</option>
+        <option value="herringbone">Jodełka</option>
+        <option value="rosepath">Rosepath</option>
+        <option value="crackle">Crackle</option>
+        <option value="shadow">Shadow weave</option>
+        <option value="msws">M's &amp; W's</option>
+        <option value="overshot">Overshot</option>
+        <option value="zigzag">Zygzak</option>
+        <option value="blocks">Bloki</option>
+      </select>
     </div>
     <div class="tb-group">
       <span class="tb-label">Threading:</span>
@@ -348,8 +372,85 @@ function makeTreadling(type,n,np) {
   return t;
 }
 
+// Biblioteka klasycznych tie-upów tkackich
+const TIEUP_LIBRARY = {
+  // Płócienny (tabby)
+  'plain': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>(s+t)%2)),
+  // Skos 2/2
+  'twill22': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>((s+t)%4<2)?1:0)),
+  // Skos 3/1
+  'twill31': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>((s+t)%4<3)?1:0)),
+  // Skos 1/3
+  'twill13': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>((s+t)%4<1)?1:0)),
+  // Skos 2/1
+  'twill21': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>((s+t)%3<2)?1:0)),
+  // Skos 1/2
+  'twill12': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>((s+t)%3<1)?1:0)),
+  // Płócienny 2/2 (hopsack)
+  'hopsack': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>(Math.floor(s/2)+Math.floor(t/2))%2)),
+  // Satyna 5
+  'satin5': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>((s*2+t)%Math.max(ni,5)===0)?1:0)),
+  // Satyna prosta
+  'satin': (ni,np) => {
+    const step=Math.max(2,Math.round(ni*0.6));
+    return Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>(s===(t*step)%ni)?1:0));
+  },
+  // Romb (diamond)
+  'diamond': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    const h=Math.floor(ni/2),w=Math.floor(np/2);
+    return (Math.abs(s-h)+Math.abs(t-w))<Math.min(h,w)?1:0;
+  })),
+  // Jodełka (herringbone)
+  'herringbone': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    const seg=Math.floor(t/(np/2))%2;
+    return seg===0?((s+t)%4<2?1:0):((s-t+ni*4)%4<2?1:0);
+  })),
+  // Rosepath
+  'rosepath': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    const p=np; const mid=Math.floor(p/2);
+    return (t<mid)?(s===t%ni?1:0):(s===(p-1-t)%ni?1:0);
+  })),
+  // Crackle
+  'crackle': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    return ((s+t)%ni<2||(s+t+2)%ni<1)?1:0;
+  })),
+  // Shadow weave
+  'shadow': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    const h=Math.floor(ni/2);
+    return (s<h)?((s+t)%2):((s-h+t+1)%2);
+  })),
+  // M's & W's
+  'msws': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    const p=Math.floor(ni/2);
+    return (t<p)?(s<p?((s+t)%2):((s-p+t+1)%2)):(s<p?((s+t+1)%2):((s-p+t)%2));
+  })),
+  // Overshot
+  'overshot': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    return (t%2===0)?(s===Math.floor(t/2)%ni?1:0):(((s+t)%2===0)?1:0);
+  })),
+  // Skos ukośny naprzemian
+  'zigzag': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    const block=Math.floor(t/(np/4));
+    return block%2===0?((s+t)%4<2?1:0):((s-t+ni*4)%4<2?1:0);
+  })),
+  // Pasy blokowe
+  'blocks': (ni,np) => Array.from({length:ni},(_,s)=>Array.from({length:np},(_,t)=>{
+    const bs=Math.max(2,Math.floor(ni/4));
+    return (Math.floor(s/bs)+Math.floor(t/bs))%2;
+  })),
+};
+
+const TIEUP_NAMES = Object.keys(TIEUP_LIBRARY);
+
 function makeTieup(ni,np) {
-  return Array.from({length:ni},()=>Array.from({length:np},()=>Math.random()<0.5?1:0));
+  // Losuj z biblioteki zamiast całkowicie losowo
+  const name = TIEUP_NAMES[Math.floor(Math.random()*TIEUP_NAMES.length)];
+  return TIEUP_LIBRARY[name](ni,np);
+}
+
+function makeTieupByName(name,ni,np) {
+  const fn = TIEUP_LIBRARY[name];
+  return fn ? fn(ni,np) : makeTieup(ni,np);
 }
 
 function calcDrawdown(th,tr,tu,n,m,ni,np) {
@@ -392,7 +493,7 @@ function generate(best=false) {
     tries++;
     const th=makeThreading(thType,rozmiar,nicielnice);
     const tr=makeTreadling(trType,weftRows,pedalyN);
-    const tu=makeTieup(nicielnice,pedalyN);
+    const tu=tuType==='random'?makeTieup(nicielnice,pedalyN):makeTieupByName(tuType,nicielnice,pedalyN);
     const dd=calcDrawdown(th,tr,tu,pn,pm,nicielnice,pedalyN);
     const mx=maxPrzeplot(dd,pn,pm);
     if(best){if(mx<bestMx){bestMx=mx;bestDD=dd;bestTh=th;bestTu=tu;bestTr=tr;if(mx<=maxFloat)break;}}
@@ -1157,40 +1258,15 @@ function autoFixFloats() {
       }
     }
     
-    // Szukaj też w kolumnach
-    for(let c=0;c<pn;c++){
-      let start=0,val=drawdown[0]?drawdown[0][c]:0;
-      for(let r=1;r<=pm;r++){
-        const cur=r<pm&&drawdown[r]?drawdown[r][c]:-1;
-        if(cur!==val){
-          const len=r-start;
-          if(len>maxFloat&&len>worstLen){
-            worstLen=len;
-            worstFloat={type:'col',c,rStart:start,rEnd:r-1,len};
-          }
-          start=r;val=cur;
-        }
-      }
-    }
     if(!worstFloat)break; // Wszystko naprawione!
     
     // Napraw – zmień środkową komórkę tie-up
-    if(worstFloat.type==='row'){
-      const midC=Math.floor((worstFloat.cStart+worstFloat.cEnd)/2);
-      const shaft=threading[midC];
-      const treadle=treadling[worstFloat.r]%np;
-      if(shaft>=0&&shaft<ni){
-        tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
-        fixed++;
-      }
-    } else {
-      const midR=Math.floor((worstFloat.rStart+worstFloat.rEnd)/2);
-      const shaft=threading[worstFloat.c]||0;
-      const treadle=treadling[midR]%np;
-      if(shaft>=0&&shaft<ni){
-        tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
-        fixed++;
-      }
+    const midC=Math.floor((worstFloat.cStart+worstFloat.cEnd)/2);
+    const shaft=threading[midC];
+    const treadle=treadling[worstFloat.r]%np;
+    if(shaft>=0&&shaft<ni){
+      tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
+      fixed++;
     }
     
     // Przelicz drawdown
