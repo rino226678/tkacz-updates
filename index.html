@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- version: 8 -->
+<!-- version: 9 -->
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -81,6 +81,14 @@ canvas.editing { border-color: var(--accent2); box-shadow: 0 0 0 2px rgba(255,10
 .float-item .fl-len { color: #e74c3c; font-weight: 600; margin-left: 4px; }
 /* Kalkulator */
 #calcPanel { display: none; }
+/* Kolory nitek */
+.thread-colors-row { display: flex; gap: 2px; flex-wrap: wrap; margin: 4px 0; max-height: 80px; overflow-y: auto; }
+.tc-swatch { width: 14px; height: 14px; border-radius: 2px; cursor: pointer; border: 1px solid rgba(255,255,255,0.15); flex-shrink: 0; }
+.tc-swatch:hover { border-color: var(--accent); transform: scale(1.2); }
+.tc-swatch.selected { border-color: var(--accent2); border-width: 2px; }
+.color-mode-row { display: flex; gap: 4px; margin-bottom: 4px; flex-wrap: wrap; }
+/* Undo badge */
+#undoBadge { opacity: 0.5; font-size: 10px; }
 #calcPanel.visible { display: block; }
 .calc-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
 .calc-row label { font-size: 11px; color: var(--text2); min-width: 100px; }
@@ -185,8 +193,47 @@ canvas.editing { border-color: var(--accent2); box-shadow: 0 0 0 2px rgba(255,10
       <div class="swatch" id="swatchWatek"></div>
     </div>
     <div class="tb-group">
+      <button id="btnColors" onclick="toggleColorsPanel()">🎨 Kolory nitek</button>
+      <button id="btnUndo" onclick="undo()" title="Ctrl+Z" disabled><span id="undoBadge">Ctrl+Z</span> Cofnij</button>
+    </div>
+    <div class="tb-group">
       <button class="primary" onclick="generate()">⟳ Losuj (F5)</button>
       <button onclick="generate(true)">★ Najlepszy (F6)</button>
+    </div>
+  </div>
+  <!-- Panel kolorów nitek -->
+  <div id="colorThreadPanel" style="display:none;background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 12px;flex-shrink:0;">
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+      <div>
+        <div class="color-mode-row">
+          <span class="tb-label" style="align-self:center">Tryb osnowy:</span>
+          <button id="btnModeSingle" onclick="setColorMode('single')" style="font-size:11px;padding:2px 8px">Jednolity</button>
+          <button id="btnModeStripe" onclick="setColorMode('stripe')" style="font-size:11px;padding:2px 8px">Pasy</button>
+          <button id="btnModeRandom" onclick="setColorMode('random')" style="font-size:11px;padding:2px 8px">Losowy</button>
+        </div>
+        <div id="stripeControls" style="display:none;margin-bottom:4px;">
+          <span class="tb-label">Szerokość pasa:</span>
+          <input type="number" id="stripeWidth" value="4" min="1" max="20" style="width:46px" oninput="applyStripes()">
+        </div>
+        <div class="color-mode-row" style="margin-top:4px;">
+          <span class="tb-label" style="align-self:center">Osnowa:</span>
+          <button onclick="randomizeWarpColors()" style="font-size:11px;padding:2px 8px">🎲 Losuj</button>
+          <button onclick="clearWarpColors()" style="font-size:11px;padding:2px 8px">✕ Reset</button>
+        </div>
+        <div class="thread-colors-row" id="warpColorsRow"></div>
+      </div>
+      <div>
+        <div class="color-mode-row">
+          <span class="tb-label" style="align-self:center">Wątek:</span>
+          <button onclick="randomizeWeftColors()" style="font-size:11px;padding:2px 8px">🎲 Losuj</button>
+          <button onclick="clearWeftColors()" style="font-size:11px;padding:2px 8px">✕ Reset</button>
+        </div>
+        <div class="thread-colors-row" id="weftColorsRow"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <span class="tb-label">Kliknij nitkę → wybierz kolor:</span>
+        <div id="threadColorPaletteInline" style="display:flex;flex-wrap:wrap;gap:3px;max-width:200px;"></div>
+      </div>
     </div>
   </div>
 
@@ -311,6 +358,145 @@ let colorOsnowa='#111111', colorWatek='#00e0cc';
 let rozmiar=32, weftRows=32, nicielnice=8, pedalyN=8, maxFloat=5, CELL=16;
 let threading=[], tieup=[], treadling=[], drawdown=[];
 let editingPanel=null, painting=false, paintVal=0;
+
+// ====== HISTORIA ZMIAN (UNDO) ======
+const UNDO_MAX = 40;
+let undoStack = [];
+function saveState() {
+  undoStack.push({
+    threading: threading.slice(),
+    tieup: tieup.map(r=>r.slice()),
+    treadling: treadling.slice(),
+    rozmiar, weftRows, nicielnice, pedalyN,
+    warpColors: warpColors.slice(),
+    weftColorsArr: weftColorsArr.slice()
+  });
+  if(undoStack.length > UNDO_MAX) undoStack.shift();
+  const btn = document.getElementById('btnUndo');
+  if(btn){ btn.disabled = false; btn.querySelector('#undoBadge').textContent='('+undoStack.length+')'; }
+}
+function undo() {
+  if(!undoStack.length) return;
+  const s = undoStack.pop();
+  threading = s.threading; tieup = s.tieup; treadling = s.treadling;
+  rozmiar = s.rozmiar; weftRows = s.weftRows; nicielnice = s.nicielnice; pedalyN = s.pedalyN;
+  warpColors = s.warpColors; weftColorsArr = s.weftColorsArr;
+  document.getElementById('rozmiar').value = rozmiar;
+  document.getElementById('weftRows').value = weftRows;
+  document.getElementById('nicielnice').value = nicielnice;
+  document.getElementById('pedalyN').value = pedalyN;
+  const pn=Math.min(rozmiar,MAX_PREVIEW), pm=Math.min(weftRows,MAX_PREVIEW);
+  drawdown = calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
+  editingPanel=null; updateEditButtons(); renderSchema(); renderPreview(); buildInstructions();
+  rebuildColorSwatches();
+  const btn = document.getElementById('btnUndo');
+  if(btn){
+    if(!undoStack.length){ btn.disabled=true; btn.querySelector('#undoBadge').textContent='Ctrl+Z'; }
+    else btn.querySelector('#undoBadge').textContent='('+undoStack.length+')';
+  }
+}
+
+// ====== KOLORY NITEK ======
+let warpColors = [];   // tablica kolorów osnowy [rozmiar]
+let weftColorsArr = []; // tablica kolorów wątku [weftRows]
+let colorEditTarget = null; // {type:'warp'|'weft', idx}
+
+function initWarpColors() {
+  warpColors = Array(rozmiar).fill(colorOsnowa);
+}
+function initWeftColors() {
+  weftColorsArr = Array(weftRows).fill(colorWatek);
+}
+function ensureColors() {
+  while(warpColors.length < rozmiar) warpColors.push(colorOsnowa);
+  warpColors.length = rozmiar;
+  while(weftColorsArr.length < weftRows) weftColorsArr.push(colorWatek);
+  weftColorsArr.length = weftRows;
+}
+function getWarpColor(i) { return warpColors[i] || colorOsnowa; }
+function getWeftColor(i) { return weftColorsArr[i] || colorWatek; }
+
+function toggleColorsPanel() {
+  const p = document.getElementById('colorThreadPanel');
+  const visible = p.style.display !== 'none';
+  p.style.display = visible ? 'none' : 'block';
+  if(!visible) rebuildColorSwatches();
+}
+
+function rebuildColorSwatches() {
+  ensureColors();
+  const wr = document.getElementById('warpColorsRow');
+  const wfr = document.getElementById('weftColorsRow');
+  const palette = document.getElementById('threadColorPaletteInline');
+  if(!wr||!wfr) return;
+  wr.innerHTML=''; wfr.innerHTML='';
+  // Osnowa
+  warpColors.forEach((c,i)=>{
+    const d = document.createElement('div');
+    d.className='tc-swatch'; d.style.background=c; d.title='Osnowa '+(i+1);
+    d.onclick=()=>{ colorEditTarget={type:'warp',idx:i}; highlightSwatch(wr,i); };
+    wr.appendChild(d);
+  });
+  // Wątek
+  weftColorsArr.forEach((c,i)=>{
+    const d = document.createElement('div');
+    d.className='tc-swatch'; d.style.background=c; d.title='Wątek '+(i+1);
+    d.onclick=()=>{ colorEditTarget={type:'weft',idx:i}; highlightSwatch(wfr,i); };
+    wfr.appendChild(d);
+  });
+  // Paleta
+  if(!palette.children.length){
+    COLORS.forEach(col=>{
+      const d=document.createElement('div');
+      d.className='tc-swatch'; d.style.background=col.h; d.title=col.n;
+      d.style.width='18px'; d.style.height='18px';
+      d.onclick=()=>{
+        if(!colorEditTarget) return;
+        if(colorEditTarget.type==='warp') warpColors[colorEditTarget.idx]=col.h;
+        else weftColorsArr[colorEditTarget.idx]=col.h;
+        rebuildColorSwatches();
+        renderSchema(); renderPreview();
+      };
+      palette.appendChild(d);
+    });
+  }
+}
+function highlightSwatch(container, idx) {
+  Array.from(container.children).forEach((el,i)=>el.classList.toggle('selected',i===idx));
+}
+function randomizeWarpColors() {
+  saveState();
+  warpColors = Array.from({length:rozmiar},()=>COLORS[Math.floor(Math.random()*COLORS.length)].h);
+  rebuildColorSwatches(); renderSchema(); renderPreview();
+}
+function clearWarpColors() {
+  saveState();
+  warpColors = Array(rozmiar).fill(colorOsnowa);
+  rebuildColorSwatches(); renderSchema(); renderPreview();
+}
+function randomizeWeftColors() {
+  saveState();
+  weftColorsArr = Array.from({length:weftRows},()=>COLORS[Math.floor(Math.random()*COLORS.length)].h);
+  rebuildColorSwatches(); renderSchema(); renderPreview();
+}
+function clearWeftColors() {
+  saveState();
+  weftColorsArr = Array(weftRows).fill(colorWatek);
+  rebuildColorSwatches(); renderSchema(); renderPreview();
+}
+function setColorMode(mode) {
+  document.getElementById('stripeControls').style.display = mode==='stripe'?'block':'none';
+  if(mode==='single'){ clearWarpColors(); return; }
+  if(mode==='random'){ randomizeWarpColors(); return; }
+  if(mode==='stripe'){ applyStripes(); }
+}
+function applyStripes() {
+  const w = parseInt(document.getElementById('stripeWidth').value)||4;
+  const palette2 = COLORS.filter(c=>c.h!==colorWatek);
+  saveState();
+  warpColors = Array.from({length:rozmiar},(_,i)=>palette2[Math.floor(i/w)%palette2.length].h);
+  rebuildColorSwatches(); renderSchema(); renderPreview();
+}
 
 function initSwatches() {
   const s1=document.getElementById('swatchOsnowa');
@@ -478,6 +664,7 @@ function maxPrzeplot(dd,n,m) {
 }
 
 function generate(best=false) {
+  saveState();
   rozmiar=parseInt(document.getElementById('rozmiar').value);
   weftRows=parseInt(document.getElementById('weftRows').value);
   nicielnice=parseInt(document.getElementById('nicielnice').value);
@@ -486,6 +673,8 @@ function generate(best=false) {
   CELL=parseInt(document.getElementById('zoom').value);
   const thType=document.getElementById('threadingType').value;
   const trType=document.getElementById('treadlingType').value;
+  const tuTypeEl=document.getElementById('tieupType');
+  const tuType=tuTypeEl?tuTypeEl.value:'random';
   const pn=Math.min(rozmiar,MAX_PREVIEW),pm=Math.min(weftRows,MAX_PREVIEW);
   let tries=0,bestDD=null,bestTh=null,bestTu=null,bestTr=null,bestMx=999;
   const maxTries=best?300:2000;
@@ -517,7 +706,10 @@ function generate(best=false) {
     :'<span class="badge badge-err">⚠ Przeplot za duży</span>';
   if(rozmiar>MAX_PREVIEW) document.getElementById('statValid').innerHTML+=
     ' <span class="badge badge-info">Podgląd '+pn2+'/'+rozmiar+' nitek</span>';
-  editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();
+  editingPanel=null;updateEditButtons();
+  initWarpColors(); initWeftColors();
+  renderSchema();renderPreview();buildInstructions();
+  if(document.getElementById('colorThreadPanel').style.display!=='none') rebuildColorSwatches();
 }
 
 function getPreviewSize(){return{pn:Math.min(rozmiar,MAX_PREVIEW),pm:Math.min(weftRows,MAX_PREVIEW)};}
@@ -551,9 +743,13 @@ function renderSchema() {
   const{pw:pwTr,cv:cvTr}=makeCanvas(np*CELL,pm*CELL,'Treadling','treadling');
   topRow.append(pwTh,pwTu); botRow.append(pwDd,pwTr);
   outer.append(topRow,botRow); wrap.appendChild(outer);
-  drawGrid(cvTh,ni,pn,(r,c)=>threading[c]===(ni-1-r)?colorOsnowa:'#1e1e1e');
+  drawGrid(cvTh,ni,pn,(r,c)=>threading[c]===(ni-1-r)?getWarpColor(c):'#1e1e1e');
   drawGrid(cvTu,ni,np,(r,c)=>tieup[ni-1-r]&&tieup[ni-1-r][c]?colorOsnowa:'#1e1e1e');
-  drawGrid(cvDd,pm,pn,(r,c)=>drawdown[pm-1-r]&&drawdown[pm-1-r][c]?colorOsnowa:colorWatek);
+  drawGrid(cvDd,pm,pn,(r,c)=>{
+    const row=pm-1-r;
+    if(drawdown[row]&&drawdown[row][c]) return getWarpColor(c);
+    return getWeftColor(row);
+  });
   drawGrid(cvTr,pm,np,(r,c)=>treadling[pm-1-r]===c?colorOsnowa:'#1e1e1e');
   [cvTh,cvTu,cvTr].forEach(cv=>{
     cv.addEventListener('mousedown',e=>{painting=true;handleEdit(e,cv);});
@@ -574,8 +770,10 @@ function renderPreview() {
   cv.width=previewCols*cs; cv.height=previewRows*cs;
   const ctx=cv.getContext('2d');
   for(let r=0;r<previewRows;r++) for(let c=0;c<previewCols;c++){
-    const dr=drawdown[r%pm]; 
-    ctx.fillStyle=dr&&dr[c%pn]?colorOsnowa:colorWatek;
+    const dr=drawdown[r%pm];
+    const warpIdx=c%pn;
+    const weftIdx=r%pm;
+    ctx.fillStyle=dr&&dr[warpIdx]?getWarpColor(warpIdx):getWeftColor(weftIdx);
     ctx.fillRect(c*cs,r*cs,cs,cs);
   }
 }
@@ -590,15 +788,15 @@ function handleEdit(e,cv){
   const{pn,pm}=getPreviewSize(); const ni=nicielnice,np=pedalyN;
   if(panel==='threading'){
     const sh=ni-1-r; if(r<0||r>=ni||c<0||c>=pn)return;
-    if(e.type==='mousedown')paintVal=threading[c]===sh?-1:sh;
+    if(e.type==='mousedown'){saveState();paintVal=threading[c]===sh?-1:sh;}
     threading[c]=paintVal;
   } else if(panel==='tieup'){
     const tr=ni-1-r; if(r<0||r>=ni||c<0||c>=np)return;
-    if(e.type==='mousedown')paintVal=tieup[tr][c]?0:1;
+    if(e.type==='mousedown'){saveState();paintVal=tieup[tr][c]?0:1;}
     tieup[tr][c]=paintVal;
   } else if(panel==='treadling'){
     if(r<0||r>=pm||c<0||c>=np)return;
-    if(e.type==='mousedown')paintVal=treadling[pm-1-r]===c?-1:c;
+    if(e.type==='mousedown'){saveState();paintVal=treadling[pm-1-r]===c?-1:c;}
     treadling[pm-1-r]=paintVal;
   }
   drawdown=calcDrawdown(threading,treadling,tieup,Math.min(rozmiar,MAX_PREVIEW),Math.min(weftRows,MAX_PREVIEW),ni,np);
@@ -707,6 +905,7 @@ function importWIF(text) {
   document.getElementById('pedalyN').value=pedalyN;
   const pn=Math.min(rozmiar,MAX_PREVIEW),pm=Math.min(weftRows,MAX_PREVIEW);
   drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
+  initWarpColors(); initWeftColors();
   editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();
   document.getElementById('importStatus').textContent='✓ Wczytano WIF: '+ni+' nicielnic, '+np+' pedałów, '+warpThreads+' nitek';
 }
@@ -854,6 +1053,7 @@ function reduceDraft() {
   if(!threading.length){statusEl.textContent='Najpierw wygeneruj lub wczytaj wzór.';return;}
 
   statusEl.textContent='Redukuję...';
+  saveState();
 
   // Mapowanie nicielnic: grupuj wg podobieństwa w tieup
   const niMap=Array(nicielnice).fill(0);
@@ -954,7 +1154,7 @@ async function savePNG(){
 }
 
 async function saveJSON(){
-  const data=JSON.stringify({threading,tieup,treadling,rozmiar,weftRows,nicielnice,pedalyN,colorOsnowa,colorWatek},null,2);
+  const data=JSON.stringify({threading,tieup,treadling,rozmiar,weftRows,nicielnice,pedalyN,colorOsnowa,colorWatek,warpColors,weftColorsArr},null,2);
   if(window.electronAPI) await window.electronAPI.saveFile({defaultName:'wzor_tkacki.json',data});
   else{const a=document.createElement('a');a.download='wzor_tkacki.json';a.href='data:application/json;charset=utf-8,'+encodeURIComponent(data);a.click();}
 }
@@ -963,6 +1163,7 @@ async function saveJSON(){
 document.addEventListener('keydown',e=>{
   if(e.key==='F5'){e.preventDefault();generate();}
   if(e.key==='F6'){e.preventDefault();generate(true);}
+  if(e.key==='z'&&(e.ctrlKey||e.metaKey)){e.preventDefault();undo();}
 });
 document.getElementById('zoom').addEventListener('change',()=>{
   CELL=parseInt(document.getElementById('zoom').value);
@@ -991,6 +1192,8 @@ if(window.electronAPI){
     document.getElementById('pedalyN').value=pedalyN;
     document.getElementById('swatchOsnowa').style.background=colorOsnowa;
     document.getElementById('swatchWatek').style.background=colorWatek;
+    warpColors=s.warpColors||[]; weftColorsArr=s.weftColorsArr||[];
+    initWarpColors(); initWeftColors(); ensureColors();
     const pn=Math.min(rozmiar,MAX_PREVIEW),pm=Math.min(weftRows,MAX_PREVIEW);
     drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
     editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();
@@ -1236,6 +1439,7 @@ function autoFixFloats() {
   const ni=nicielnice,np=pedalyN;
   let fixed=0;
   const maxTries=50;
+  saveState();
   
   for(let attempt=0;attempt<maxTries;attempt++){
     // Sprawdź czy są długie przeploty
@@ -1258,15 +1462,60 @@ function autoFixFloats() {
       }
     }
     
+    if(!worstFloat) {
+      // Sprawdź pionowe
+      for(let c=0;c<pn;c++){
+        let start=0, val=drawdown[0]?drawdown[0][c]:0;
+        for(let r=1;r<=pm;r++){
+          const cur=r<pm&&drawdown[r]?drawdown[r][c]:-1;
+          if(cur!==val){
+            const len=r-start;
+            if(len>maxFloat&&len>worstLen){
+              worstLen=len;
+              worstFloat={type:'col',c,rStart:start,rEnd:r-1,len};
+            }
+            start=r; val=cur;
+          }
+        }
+      }
+    }
+    
     if(!worstFloat)break; // Wszystko naprawione!
     
-    // Napraw – zmień środkową komórkę tie-up
-    const midC=Math.floor((worstFloat.cStart+worstFloat.cEnd)/2);
-    const shaft=threading[midC];
-    const treadle=treadling[worstFloat.r]%np;
-    if(shaft>=0&&shaft<ni){
-      tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
-      fixed++;
+    if(worstFloat.type==='row'){
+      // Napraw poziomy – zmień środkową komórkę tie-up
+      const midC=Math.floor((worstFloat.cStart+worstFloat.cEnd)/2);
+      const shaft=threading[midC];
+      const treadle=treadling[worstFloat.r]%np;
+      if(shaft>=0&&shaft<ni){
+        tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
+        fixed++;
+      }
+    } else {
+      // Napraw pionowy – zmień treadling środkowego rzędu kolumny
+      // Szukamy rzędu w środku pionu i zmieniamy jego pedał
+      const midR=Math.floor((worstFloat.rStart+worstFloat.rEnd)/2);
+      const shaft=threading[worstFloat.c];
+      if(shaft<0||shaft>=ni){ break; }
+      // Znajdź pedał aktualnie używany w tym rzędzie
+      const curTreadle=treadling[midR]%np;
+      // Szukaj alternatywnego pedału który zmienia wartość tie-up dla tej nicielnice
+      let changed=false;
+      for(let p=0;p<np;p++){
+        if(p===curTreadle) continue;
+        // Sprawdź czy ten pedał daje inną wartość dla danej nicielnice
+        if((tieup[shaft][p]||0) !== (tieup[shaft][curTreadle]||0)){
+          treadling[midR]=p;
+          changed=true;
+          fixed++;
+          break;
+        }
+      }
+      // Jeśli nie znaleziono innego pedału – zmodyfikuj tie-up
+      if(!changed){
+        tieup[shaft][curTreadle]=tieup[shaft][curTreadle]?0:1;
+        fixed++;
+      }
     }
     
     // Przelicz drawdown
@@ -1327,6 +1576,8 @@ function calcWeaving() {
 // ====== KONIEC KALKULATORA ======
 
 initSwatches();
+initWarpColors();
+initWeftColors();
 generate();
 calcWeaving();
 </script>
