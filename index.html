@@ -743,10 +743,15 @@ function drawGrid(cv,rows,cols,getFill) {
 function renderSchema() {
   const wrap=document.getElementById('schemaWrap'); wrap.innerHTML='';
   const{pn,pm}=getPreviewSize(); const ni=nicielnice,np=pedalyN;
+  // Pełne wymiary (mogą być większe niż podgląd)
+  const fullN=rozmiar, fullM=weftRows;
   function makeCanvas(w,h,label,panelId){
     const pw=document.createElement('div'); pw.className='panel-wrap';
     const lbl=document.createElement('div'); lbl.className='panel-label';
-    lbl.textContent=label+(panelId==='threading'&&rozmiar>MAX_PREVIEW?' (podgląd '+pn+'/'+rozmiar+')':'');
+    let extra='';
+    if(panelId==='threading'&&rozmiar>MAX_PREVIEW) extra=' (wzór '+pn+' nitek, powielony)';
+    if(panelId==='drawdown'&&(rozmiar>MAX_PREVIEW||weftRows>MAX_PREVIEW)) extra=' (wzór '+pn+'×'+pm+', powielony)';
+    lbl.textContent=label+extra;
     const cv=document.createElement('canvas');
     cv.width=w; cv.height=h; cv.dataset.panel=panelId;
     if(editingPanel===panelId)cv.classList.add('editing');
@@ -755,20 +760,30 @@ function renderSchema() {
   const outer=document.createElement('div'); outer.className='schema-outer';
   const topRow=document.createElement('div'); topRow.className='schema-row';
   const botRow=document.createElement('div'); botRow.className='schema-row';
-  const{pw:pwTh,cv:cvTh}=makeCanvas(pn*CELL,ni*CELL,'Threading (naciąg)','threading');
+  // Threading: pełna szerokość (fullN nitek), ale wzór powtarzany z pn
+  const{pw:pwTh,cv:cvTh}=makeCanvas(fullN*CELL,ni*CELL,'Threading (naciąg)','threading');
   const{pw:pwTu,cv:cvTu}=makeCanvas(np*CELL,ni*CELL,'Tie-up '+ni+'×'+np,'tieup');
-  const{pw:pwDd,cv:cvDd}=makeCanvas(pn*CELL,pm*CELL,'Drawdown (wzór)','drawdown');
-  const{pw:pwTr,cv:cvTr}=makeCanvas(np*CELL,pm*CELL,'Treadling','treadling');
+  // Drawdown: pełny rozmiar z powielaniem wzoru
+  const{pw:pwDd,cv:cvDd}=makeCanvas(fullN*CELL,fullM*CELL,'Drawdown (wzór)','drawdown');
+  // Treadling: pełna wysokość (fullM rzędów), wzór powtarzany z pm
+  const{pw:pwTr,cv:cvTr}=makeCanvas(np*CELL,fullM*CELL,'Treadling','treadling');
   topRow.append(pwTh,pwTu); botRow.append(pwDd,pwTr);
   outer.append(topRow,botRow); wrap.appendChild(outer);
-  drawGrid(cvTh,ni,pn,(r,c)=>threading[c]===(ni-1-r)?getWarpColor(c):'#1e1e1e');
+
+  // Threading – powielony wzór wzdłuż osi X
+  drawGrid(cvTh,ni,fullN,(r,c)=>threading[c%pn]===(ni-1-r)?getWarpColor(c%pn):'#1e1e1e');
   drawGrid(cvTu,ni,np,(r,c)=>tieup[ni-1-r]&&tieup[ni-1-r][c]?colorOsnowa:'#1e1e1e');
-  drawGrid(cvDd,pm,pn,(r,c)=>{
-    const row=pm-1-r;
-    if(drawdown[row]&&drawdown[row][c]) return getWarpColor(c);
+  // Drawdown – powielony wzór w obu osiach
+  drawGrid(cvDd,fullM,fullN,(r,c)=>{
+    const row=(fullM-1-r)%pm;
+    const col=c%pn;
+    if(drawdown[row]&&drawdown[row][col]) return getWarpColor(col);
     return getWeftColor(row);
   });
-  drawGrid(cvTr,pm,np,(r,c)=>treadling[pm-1-r]===c?colorOsnowa:'#1e1e1e');
+  // Treadling – powielony wzór wzdłuż osi Y
+  drawGrid(cvTr,fullM,np,(r,c)=>treadling[(fullM-1-r)%pm]===c?colorOsnowa:'#1e1e1e');
+
+  // Edycja tylko na canvasach schematycznych (nie drawdown który jest tylko podglądem)
   [cvTh,cvTu,cvTr].forEach(cv=>{
     cv.addEventListener('mousedown',e=>{painting=true;handleEdit(e,cv);});
     cv.addEventListener('mousemove',e=>{if(painting)handleEdit(e,cv);});
@@ -805,17 +820,19 @@ function handleEdit(e,cv){
   const r=Math.floor((e.clientY-rect.top)*sy/CELL);
   const{pn,pm}=getPreviewSize(); const ni=nicielnice,np=pedalyN;
   if(panel==='threading'){
-    const sh=ni-1-r; if(r<0||r>=ni||c<0||c>=pn)return;
-    if(e.type==='mousedown'){saveState();paintVal=threading[c]===sh?-1:sh;}
-    threading[c]=paintVal;
+    const cc=c%pn; // pozwól klikać w powielone obszary
+    const sh=ni-1-r; if(r<0||r>=ni||cc<0||cc>=pn)return;
+    if(e.type==='mousedown'){saveState();paintVal=threading[cc]===sh?-1:sh;}
+    threading[cc]=paintVal;
   } else if(panel==='tieup'){
     const tr=ni-1-r; if(r<0||r>=ni||c<0||c>=np)return;
     if(e.type==='mousedown'){saveState();paintVal=tieup[tr][c]?0:1;}
     tieup[tr][c]=paintVal;
   } else if(panel==='treadling'){
-    if(r<0||r>=pm||c<0||c>=np)return;
-    if(e.type==='mousedown'){saveState();paintVal=treadling[pm-1-r]===c?-1:c;}
-    treadling[pm-1-r]=paintVal;
+    if(r<0||r>=weftRows||c<0||c>=np)return;
+    const rrIdx=(weftRows-1-r)%pm;
+    if(e.type==='mousedown'){saveState();paintVal=treadling[rrIdx]===c?-1:c;}
+    treadling[rrIdx]=paintVal;
   }
   drawdown=calcDrawdown(threading,treadling,tieup,Math.min(rozmiar,MAX_PREVIEW),Math.min(weftRows,MAX_PREVIEW),ni,np);
   renderSchema();renderPreview();updateStatusBar();
@@ -1400,26 +1417,29 @@ function findLongFloats() {
 }
 
 function highlightAllFloats(floats) {
-  // Rysuj drawdown z podświetleniem
   const wrap=document.getElementById('schemaWrap');
   const cvDd=wrap.querySelector('[data-panel="drawdown"]');
   if(!cvDd)return;
-  
   const ctx=cvDd.getContext('2d');
   const {pm,pn}=getPreviewSize();
-  
-  // Narysuj najpierw normalny drawdown
-  drawGrid(cvDd,pm,pn,(r,c)=>drawdown[pm-1-r]&&drawdown[pm-1-r][c]?colorOsnowa:colorWatek);
-  
-  // Narysuj czerwone ramki na długich przeplatach
+  const fullM=weftRows, fullN=rozmiar;
+
+  // Przerysuj drawdown z powielaniem
+  drawGrid(cvDd,fullM,fullN,(r,c)=>{
+    const row=(fullM-1-r)%pm, col=c%pn;
+    if(drawdown[row]&&drawdown[row][col]) return getWarpColor(col);
+    return getWeftColor(row);
+  });
+
+  // Narysuj czerwone ramki – tylko na pierwszym "kafelku" wzoru (pn×pm)
   ctx.strokeStyle='#e74c3c';
   ctx.lineWidth=2;
   floats.forEach(f=>{
     if(f.type==='row'){
-      const r=pm-1-f.r;
+      const r=fullM-1-f.r;
       ctx.strokeRect(f.cStart*CELL+1, r*CELL+1, (f.cEnd-f.cStart+1)*CELL-2, CELL-2);
     } else {
-      const rStart=pm-1-f.rEnd;
+      const rStart=fullM-1-f.rEnd;
       ctx.strokeRect(f.c*CELL+1, rStart*CELL+1, CELL-2, (f.rEnd-f.rStart+1)*CELL-2);
     }
   });
