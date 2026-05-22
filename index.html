@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- version: 13 -->
+<!-- version: 15 -->
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -318,8 +318,8 @@ canvas.editing { border-color: var(--accent2); box-shadow: 0 0 0 2px rgba(255,10
           <div class="calc-row"><label>Gęstość osnowy (/cm):</label><input type="number" id="calcWarpDens" value="8" min="1" oninput="calcWeaving()"></div>
           <div class="calc-row"><label>Gęstość wątku (/cm):</label><input type="number" id="calcWeftDens" value="8" min="1" oninput="calcWeaving()"></div>
           <div class="calc-row"><label>Zapas osnowy (%):</label><input type="number" id="calcWarpExtra" value="20" min="0" oninput="calcWeaving()"></div>
-          <div class="calc-row"><label>Gramatura nitki (g/m):</label><input type="number" id="calcGram" value="0.05" step="0.01" min="0.001" oninput="calcWeaving()"></div>
-          <div class="calc-row"><label>Cena nitki (zł/100m):</label><input type="number" id="calcPrice" value="5" min="0" oninput="calcWeaving()"></div>
+          <div class="calc-row"><label>Gramatura nitki (g/m):</label><input type="number" id="calcGram" value="0.05" step="0.001" min="0.001" oninput="calcWeaving()"></div>
+          <div class="calc-row"><label>Cena nitki (zł/100g):</label><input type="number" id="calcPrice" value="15" min="0" step="0.01" oninput="calcWeaving()"></div>
           <div class="calc-result" id="calcResult"></div>
         </div>
       </div>
@@ -1758,31 +1758,32 @@ function calcWeaving() {
   const warpDens=parseFloat(document.getElementById('calcWarpDens').value)||8;
   const weftDens=parseFloat(document.getElementById('calcWeftDens').value)||8;
   const warpExtra=parseFloat(document.getElementById('calcWarpExtra').value)||20;
-  const gram=parseFloat(document.getElementById('calcGram').value)||0.05;
-  const price=parseFloat(document.getElementById('calcPrice').value)||5;
-  
+  const gram=parseFloat(document.getElementById('calcGram').value)||0.05; // g/m
+  const pricePerKg=parseFloat(document.getElementById('calcPrice').value)||15; // zł/100g
+
   // Obliczenia
   const warpThreads=Math.ceil(width*warpDens);
   const warpLengthPerThread=(length*(1+warpExtra/100))/100; // w metrach
   const totalWarpM=warpThreads*warpLengthPerThread;
-  
-  const weftRows=Math.ceil(length*weftDens);
+
+  const weftRowsCalc=Math.ceil(length*weftDens);
   const weftLengthPerRow=(width*1.1)/100; // +10% na splot
-  const totalWeftM=weftRows*weftLengthPerRow;
-  
+  const totalWeftM=weftRowsCalc*weftLengthPerRow;
+
   const totalM=totalWarpM+totalWeftM;
-  const totalG=totalM*gram*1000;
-  const totalCost=(totalM/100)*price;
-  
+  const totalG=totalM*gram;          // gram/m × m = gramy
+  const totalKg=totalG/1000;
+  const totalCost=(totalG/100)*pricePerKg; // zł/100g × (g/100) = zł
+
   const result=document.getElementById('calcResult');
   result.innerHTML=
     '<div class="cr-row"><span>Nitki osnowy:</span><strong>'+warpThreads+' szt.</strong></div>'+
     '<div class="cr-row"><span>Osnowa razem:</span><strong>'+totalWarpM.toFixed(1)+' m</strong></div>'+
-    '<div class="cr-row"><span>Rzędy wątku:</span><strong>'+weftRows+' szt.</strong></div>'+
+    '<div class="cr-row"><span>Rzędy wątku:</span><strong>'+weftRowsCalc+' szt.</strong></div>'+
     '<div class="cr-row"><span>Wątek razem:</span><strong>'+totalWeftM.toFixed(1)+' m</strong></div>'+
     '<div class="cr-row" style="border-top:1px solid var(--border);padding-top:4px;margin-top:4px">'+
     '<span>Łącznie nitki:</span><strong>'+totalM.toFixed(1)+' m</strong></div>'+
-    '<div class="cr-row"><span>Waga:</span><strong>'+totalG.toFixed(0)+' g</strong></div>'+
+    '<div class="cr-row"><span>Waga:</span><strong>'+(totalG<1000?totalG.toFixed(1)+' g':totalKg.toFixed(2)+' kg')+'</strong></div>'+
     '<div class="cr-row"><span>Koszt:</span><strong style="color:var(--accent)">'+totalCost.toFixed(2)+' zł</strong></div>';
 }
 // ====== KONIEC KALKULATORA ======
