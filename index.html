@@ -1435,107 +1435,157 @@ function highlightFloat(f) {
 
 function autoFixFloats() {
   if(!drawdown.length){document.getElementById('floatStatus').textContent='Najpierw wygeneruj wzór.';return;}
+  saveState();
   const {pn,pm}=getPreviewSize();
   const ni=nicielnice,np=pedalyN;
-  let fixed=0;
-  const maxTries=50;
-  saveState();
-  
-  for(let attempt=0;attempt<maxTries;attempt++){
-    // Sprawdź czy są długie przeploty
-    let worstFloat=null, worstLen=0;
-    
-    // W rzędach
+
+  // Pomocnicza: zbierz wszystkie przeploty powyżej limitu
+  function collectFloats(dd) {
+    const floats=[];
     for(let r=0;r<pm;r++){
-      if(!drawdown[r])continue;
-      let start=0,val=drawdown[r][0];
+      if(!dd[r])continue;
+      let s=0,v=dd[r][0];
       for(let c=1;c<=pn;c++){
-        const cur=c<pn?drawdown[r][c]:-1;
-        if(cur!==val){
-          const len=c-start;
-          if(len>maxFloat&&len>worstLen){
-            worstLen=len;
-            worstFloat={type:'row',r,cStart:start,cEnd:c-1,len};
-          }
-          start=c;val=cur;
-        }
+        const cur=c<pn?dd[r][c]:-1;
+        if(cur!==v){if(c-s>maxFloat)floats.push({type:'row',r,cStart:s,cEnd:c-1,len:c-s});s=c;v=cur;}
       }
     }
-    
-    if(!worstFloat) {
-      // Sprawdź pionowe
-      for(let c=0;c<pn;c++){
-        let start=0, val=drawdown[0]?drawdown[0][c]:0;
-        for(let r=1;r<=pm;r++){
-          const cur=r<pm&&drawdown[r]?drawdown[r][c]:-1;
-          if(cur!==val){
-            const len=r-start;
-            if(len>maxFloat&&len>worstLen){
-              worstLen=len;
-              worstFloat={type:'col',c,rStart:start,rEnd:r-1,len};
-            }
-            start=r; val=cur;
-          }
-        }
+    for(let c=0;c<pn;c++){
+      let s=0,v=dd[0]?dd[0][c]:0;
+      for(let r=1;r<=pm;r++){
+        const cur=r<pm&&dd[r]?dd[r][c]:-1;
+        if(cur!==v){if(r-s>maxFloat)floats.push({type:'col',c,rStart:s,rEnd:r-1,len:r-s});s=r;v=cur;}
       }
     }
-    
-    if(!worstFloat)break; // Wszystko naprawione!
-    
-    if(worstFloat.type==='row'){
-      // Napraw poziomy – zmień środkową komórkę tie-up
-      const midC=Math.floor((worstFloat.cStart+worstFloat.cEnd)/2);
-      const shaft=threading[midC];
-      const treadle=treadling[worstFloat.r]%np;
-      if(shaft>=0&&shaft<ni){
-        tieup[shaft][treadle]=tieup[shaft][treadle]?0:1;
-        fixed++;
-      }
-    } else {
-      // Napraw pionowy – zmień treadling środkowego rzędu kolumny
-      // Szukamy rzędu w środku pionu i zmieniamy jego pedał
-      const midR=Math.floor((worstFloat.rStart+worstFloat.rEnd)/2);
-      const shaft=threading[worstFloat.c];
-      if(shaft<0||shaft>=ni){ break; }
-      // Znajdź pedał aktualnie używany w tym rzędzie
-      const curTreadle=treadling[midR]%np;
-      // Szukaj alternatywnego pedału który zmienia wartość tie-up dla tej nicielnice
-      let changed=false;
-      for(let p=0;p<np;p++){
-        if(p===curTreadle) continue;
-        // Sprawdź czy ten pedał daje inną wartość dla danej nicielnice
-        if((tieup[shaft][p]||0) !== (tieup[shaft][curTreadle]||0)){
-          treadling[midR]=p;
-          changed=true;
-          fixed++;
-          break;
-        }
-      }
-      // Jeśli nie znaleziono innego pedału – zmodyfikuj tie-up
-      if(!changed){
-        tieup[shaft][curTreadle]=tieup[shaft][curTreadle]?0:1;
-        fixed++;
-      }
-    }
-    
-    // Przelicz drawdown
-    drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,ni,np);
+    return floats;
   }
-  
+
+  // Pomocnicza: policz łączną długość wszystkich przeplatów (miara jakości)
+  function totalFloatCost(dd) {
+    let cost=0;
+    for(let r=0;r<pm;r++){
+      if(!dd[r])continue;
+      let s=0,v=dd[r][0];
+      for(let c=1;c<=pn;c++){const cur=c<pn?dd[r][c]:-1;if(cur!==v){if(c-s>maxFloat)cost+=(c-s);s=c;v=cur;}}
+    }
+    for(let c=0;c<pn;c++){
+      let s=0,v=dd[0]?dd[0][c]:0;
+      for(let r=1;r<=pm;r++){const cur=r<pm&&dd[r]?dd[r][c]:-1;if(cur!==v){if(r-s>maxFloat)cost+=(r-s);s=r;v=cur;}}
+    }
+    return cost;
+  }
+
+  let totalFixed=0;
+  const PASSES=8; // ile rund naprawy
+
+  for(let pass=0;pass<PASSES;pass++){
+    const floats=collectFloats(drawdown);
+    if(!floats.length) break;
+
+    // Sortuj od najdłuższego
+    floats.sort((a,b)=>b.len-a.len);
+    let madeProgress=false;
+
+    for(const f of floats){
+      // Dla każdego przeplotu próbujemy kilku kandydatów naprawy
+      // i wybieramy tę która najbardziej zmniejsza koszt globalny
+      let bestCost=totalFloatCost(drawdown);
+      let bestAction=null;
+
+      if(f.type==='row'){
+        // Kandydaci: zmień tieup[shaft][treadle] dla każdej komórki w środku przeplotu
+        const mid=Math.floor((f.cStart+f.cEnd)/2);
+        const candidates=[];
+        // Testuj kilka pozycji wzdłuż przeplotu
+        for(let dc=-1;dc<=1;dc++){
+          const cc=mid+dc; if(cc<0||cc>=pn)continue;
+          const shaft=threading[cc];
+          const treadle=treadling[f.r]%np;
+          if(shaft>=0&&shaft<ni) candidates.push({shaft,treadle,type:'tieup'});
+        }
+        // Też spróbuj zmienić treadling całego rzędu na różne pedały
+        for(let p=0;p<np;p++){
+          if(p!==treadling[f.r]%np) candidates.push({row:f.r,newPedal:p,type:'treadling'});
+        }
+        for(const cand of candidates){
+          // Zastosuj tymczasowo
+          let prevVal;
+          if(cand.type==='tieup'){
+            prevVal=tieup[cand.shaft][cand.treadle];
+            tieup[cand.shaft][cand.treadle]=prevVal?0:1;
+          } else {
+            prevVal=treadling[cand.row];
+            treadling[cand.row]=cand.newPedal;
+          }
+          const testDD=calcDrawdown(threading,treadling,tieup,pn,pm,ni,np);
+          const cost=totalFloatCost(testDD);
+          if(cost<bestCost){bestCost=cost;bestAction={...cand,prevVal};}
+          // Cofnij
+          if(cand.type==='tieup') tieup[cand.shaft][cand.treadle]=prevVal;
+          else treadling[cand.row]=prevVal;
+        }
+      } else {
+        // Przeplot pionowy
+        const mid=Math.floor((f.rStart+f.rEnd)/2);
+        const candidates=[];
+        // Spróbuj zmienić treadling środkowych rzędów
+        for(let dr=-1;dr<=1;dr++){
+          const rr=mid+dr; if(rr<0||rr>=pm)continue;
+          for(let p=0;p<np;p++){
+            if(p!==treadling[rr]%np) candidates.push({row:rr,newPedal:p,type:'treadling'});
+          }
+        }
+        // Też zmień tie-up dla tej nicielnice
+        const shaft=threading[f.c];
+        if(shaft>=0&&shaft<ni){
+          for(let p=0;p<np;p++){
+            candidates.push({shaft,treadle:p,type:'tieup'});
+          }
+        }
+        for(const cand of candidates){
+          let prevVal;
+          if(cand.type==='tieup'){
+            prevVal=tieup[cand.shaft][cand.treadle];
+            tieup[cand.shaft][cand.treadle]=prevVal?0:1;
+          } else {
+            prevVal=treadling[cand.row];
+            treadling[cand.row]=cand.newPedal;
+          }
+          const testDD=calcDrawdown(threading,treadling,tieup,pn,pm,ni,np);
+          const cost=totalFloatCost(testDD);
+          if(cost<bestCost){bestCost=cost;bestAction={...cand,prevVal};}
+          if(cand.type==='tieup') tieup[cand.shaft][cand.treadle]=prevVal;
+          else treadling[cand.row]=prevVal;
+        }
+      }
+
+      if(bestAction){
+        // Zastosuj najlepszą poprawkę
+        if(bestAction.type==='tieup') tieup[bestAction.shaft][bestAction.treadle]=bestAction.prevVal?0:1;
+        else treadling[bestAction.row]=bestAction.newPedal;
+        drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,ni,np);
+        totalFixed++;
+        madeProgress=true;
+      }
+    }
+    if(!madeProgress) break;
+  }
+
   renderSchema();
   renderPreview();
-  
+
   const mx=maxPrzeplot(drawdown,pn,pm);
+  const remaining=collectFloats(drawdown).length;
   const status=document.getElementById('floatStatus');
-  if(mx<=maxFloat){
-    status.textContent='✓ Naprawiono! Max przeplot: '+mx+' ('+fixed+' zmian w tie-up)';
+  if(remaining===0){
+    status.textContent='✓ Naprawiono wszystkie! Max przeplot: '+mx+' ('+totalFixed+' zmian)';
     status.style.color='#2ecc71';
     document.getElementById('floatPanel').classList.remove('visible');
     document.getElementById('floatList').innerHTML='';
   } else {
-    status.textContent='⚠ Częściowo naprawiono ('+fixed+' zmian). Max przeplot: '+mx+'. Spróbuj ponownie.';
+    status.textContent='⚠ Pozostało '+remaining+' przeplatów, max: '+mx+'. Kliknij ponownie.';
     status.style.color='#f39c12';
-    findLongFloats(); // Odśwież listę
+    findLongFloats();
   }
 }
 
