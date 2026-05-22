@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- version: 12 -->
+<!-- version: 13 -->
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -1289,8 +1289,13 @@ async function analyzeWithAI(base64){
   try{
     const ni=parseInt(document.getElementById('nicielnice').value)||8;
     const np=parseInt(document.getElementById('pedalyN').value)||8;
-    const n=parseInt(document.getElementById('rozmiar').value)||32;
-    const m=parseInt(document.getElementById('weftRows').value)||32;
+    // Dla analizy AI używamy minimum 128×128 żeby wzór miał miejsce na szczegóły
+    const MIN_AI_SIZE=128;
+    const n=Math.max(parseInt(document.getElementById('rozmiar').value)||32, MIN_AI_SIZE);
+    const m=Math.max(parseInt(document.getElementById('weftRows').value)||32, MIN_AI_SIZE);
+    // Zaktualizuj pola UI jeśli za małe
+    if(n>rozmiar){ rozmiar=n; document.getElementById('rozmiar').value=n; }
+    if(m>weftRows){ weftRows=m; document.getElementById('weftRows').value=m; }
 
     // ── ETAP 1: opis struktury wzoru ──────────────────────────────────────
     setProgress(30,'Etap 1/2: Rozpoznaję strukturę wzoru...');
