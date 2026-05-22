@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- version: 11 -->
+<!-- version: 12 -->
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -1292,88 +1292,137 @@ async function analyzeWithAI(base64){
     const n=parseInt(document.getElementById('rozmiar').value)||32;
     const m=parseInt(document.getElementById('weftRows').value)||32;
 
-    const prompt=`Jestes ekspertem od tkactwa. Przeanalizuj dokladnie strukture tej tkaniny i odtworz jej draft tkacki.
+    // ── ETAP 1: opis struktury wzoru ──────────────────────────────────────
+    setProgress(30,'Etap 1/2: Rozpoznaję strukturę wzoru...');
+    const prompt1=`Jestes ekspertem od tkactwa. Przeanalizuj dokladnie te tkanine i opisz jej strukture tkacka.
 
-Zwroc TYLKO czysty JSON (bez markdown, bez komentarzy). Format:
+Odpowiedz TYLKO czystym JSON:
 {
-  "proposals": [
-    {
-      "label": "nazwa po polsku",
-      "opis": "krotki opis wzoru",
-      "min_nicielnice": 8,
-      "min_pedalow": 8,
-      "threading": [0,1,2,3,1,2,3,0,1,2,3,1,2,3,0,1],
-      "tieup": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
-      "treadling": [0,1,2,3,2,1,0,1,2,3,2,1,0,1,2,3]
-    }
-  ]
+  "typ_splotu": "np. overshot / twill / plain / rosepath / crackle / shadow",
+  "symetria": "np. point twill / straight / reversed",
+  "motyw": "np. medalion / jodełka / romby / pasy / kwiaty",
+  "zlozonos": "prosta / srednia / zlozona",
+  "min_nicielnice": 16,
+  "min_pedalow": 16,
+  "uwagi": "dodatkowe obserwacje o strukturze przeplatania, gestosci, charakterystycznych elementach"
 }
 
-Zasady:
-- Podaj 3 propozycje od najprostszej do najbardziej zlozone
-- threading: tablica dlugosci ${n}, wartosci 0..min_nicielnice-1, indeks nicielnic dla kazdej nitki osnowy
-- tieup: macierz min_nicielnice x min_pedalow, wartosci 0 lub 1
-- treadling: tablica dlugosci ${m}, wartosci 0..min_pedalow-1, indeks pedalu dla kazdego rzedego watku
-- min_nicielnice i min_pedalow: minimalna liczba nicielnic/pedalow potrzebna do oddania tego wzoru (np. plain=2, twill=4, overshot=8+)
-- Staraj sie realnie odtworzyc wzor ze zdjecia, nie podawaj losowych wartosci
-- Wzory powielaja sie, wiec threading i treadling moga byc krotszym powtarzajacym sie motywem powielonym do dlugosci ${n}/${m}`;
+Bądź precyzyjny – min_nicielnice/min_pedalow to realnie potrzebna liczba żeby oddac ten wzor (overshot medalion = min 16, twill prosty = 4, plain = 2).`;
 
-    const response=await fetch('https://api.anthropic.com/v1/messages',{
+    const r1=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key':ANTHROPIC_KEY,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-access':'true'
-      },
-      body:JSON.stringify({
-        model:'claude-opus-4-5',
-        max_tokens:4096,
-        messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
-          {type:'text',text:prompt}
-        ]}]
-      })
+      headers:{'Content-Type':'application/json','x-api-key':ANTHROPIC_KEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-opus-4-5',max_tokens:512,messages:[{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
+        {type:'text',text:prompt1}
+      ]}]})
     });
-    if(!response.ok){const err=await response.json();throw new Error(err.error&&err.error.message||'Błąd API: '+response.status);}
-    const result=await response.json();
-    const text=result.content[0].text.trim();
-    const jsonMatch=text.match(/\{[\s\S]*\}/);
-    if(!jsonMatch)throw new Error('AI nie zwróciło JSON');
+    if(!r1.ok){const e=await r1.json();throw new Error(e.error?.message||'Błąd API etap 1');}
+    const res1=await r1.json();
+    const desc1=res1.content[0].text.trim();
+    const descMatch=desc1.match(/\{[\s\S]*\}/);
+    if(!descMatch) throw new Error('Brak JSON w etapie 1');
+    const wzorInfo=JSON.parse(descMatch[0]);
+    const recNi=Math.max(ni, wzorInfo.min_nicielnice||8);
+    const recNp=Math.max(np, wzorInfo.min_pedalow||8);
+
+    // ── ETAP 2: generowanie konkretnych draftów ───────────────────────────
+    setProgress(65,'Etap 2/2: Generuję drafty tkackie...');
+
+    // Przykłady referencyjne dla AI
+    const examples=`PRZYKŁADY POPRAWNYCH DRAFTÓW:
+
+Overshot medalion (16 nicielnic, motyw point twill):
+threading (16 nici, powtarzany): [0,1,2,3,4,5,6,7,8,7,6,5,4,3,2,1]
+tieup 16x16 (overshot: każdy wątek tabby + pattern):
+[[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+ [0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0],
+ [1,1,1,0,0,0,0,0,1,1,1,0,0,0,0,0],
+ [0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0],
+ [1,0,0,1,1,0,0,0,1,0,0,1,1,0,0,0],
+ [0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0],
+ [1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,0],
+ [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+ [1,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1],
+ [0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,1],
+ [1,1,1,0,1,1,1,1,1,1,1,0,1,1,1,1],
+ [0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1],
+ [1,0,1,1,1,0,1,1,1,0,1,1,1,0,1,1],
+ [0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,1],
+ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+ [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]
+treadling (symetryczny, powtarzany): [0,2,4,6,8,10,12,14,15,13,11,9,7,5,3,1]
+
+Twill jodełka (8 nicielnic):
+threading: [0,1,2,3,4,5,6,7,6,5,4,3,2,1,0,1]
+tieup 8x8: [[1,1,0,0,0,0,0,1],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[0,0,0,0,0,1,1,1],[1,0,0,0,0,0,1,1]]
+treadling: [0,1,2,3,4,5,6,7,6,5,4,3,2,1,0,1]`;
+
+    const prompt2=`Masz odtworzyc draft tkacki tej tkaniny.
+
+Analiza wzoru (etap 1):
+${JSON.stringify(wzorInfo,null,2)}
+
+${examples}
+
+Wygeneruj 3 propozycje draftu – od najprostszej do najbardziej wiernej oryginałowi.
+Uzywaj DOKLADNIE ${recNi} nicielnic i ${recNp} pedalow.
+
+Zasady:
+- threading: KROTKI motyw (8-32 elementy) który sie powtarza, wartosci 0..${recNi-1}
+- tieup: macierz ${recNi}x${recNp}, wartosci 0/1, musi oddawac charakter wzoru
+- treadling: KROTKI motyw (8-32 elementy) który sie powtarza, wartosci 0..${recNp-1}
+- Dla overshot: tieup musi miec naprzemienne rzedy tabby (1,0,1,0...) i wzoru
+- Dla jodełki/twill: tieup to przesunięta przekatna
+- NIE generuj losowych danych – wzoruj sie na przykladach powyzej
+
+Odpowiedz TYLKO czystym JSON:
+{"proposals":[
+  {"label":"nazwa PL","opis":"opis","min_nicielnice":${recNi},"min_pedalow":${recNp},
+   "threading":[...],"tieup":[[...],...],"treadling":[...]},
+  {...},{...}
+]}`;
+
+    const r2=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':ANTHROPIC_KEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-opus-4-5',max_tokens:8192,messages:[
+        {role:'user',content:[
+          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
+          {type:'text',text:prompt2}
+        ]}
+      ]})
+    });
+    if(!r2.ok){const e=await r2.json();throw new Error(e.error?.message||'Błąd API etap 2');}
+    const res2=await r2.json();
+    const text2=res2.content[0].text.trim();
+    const jsonMatch=text2.match(/\{[\s\S]*\}/);
+    if(!jsonMatch) throw new Error('Brak JSON w etapie 2');
     const parsed=JSON.parse(jsonMatch[0]);
 
+    // ── Buduj propozycje ──────────────────────────────────────────────────
+    function tileArray(arr,targetLen){
+      if(!arr||!arr.length)return Array(targetLen).fill(0);
+      const out=[];for(let i=0;i<targetLen;i++)out.push(arr[i%arr.length]);return out;
+    }
+    function clampArray(arr,maxVal){
+      return arr.map(v=>Math.max(0,Math.min(maxVal-1,parseInt(v)||0)));
+    }
+
     setProgress(0,'');
-    document.getElementById('analysisStatus').textContent='Wybierz propozycję:';
+    document.getElementById('analysisStatus').innerHTML=
+      `Wzór: <strong>${wzorInfo.typ_splotu||''}</strong> ${wzorInfo.motyw||''} · ${wzorInfo.uwagi||''}<br>Wybierz propozycję:`;
     const list=document.getElementById('proposalsList'); list.innerHTML='';
 
     parsed.proposals.forEach((p,idx)=>{
-      const minNi=p.min_nicielnice||8;
-      const minNp=p.min_pedalow||8;
-      const needsMore=(minNi>ni||minNp>np);
-
-      // Zbuduj threading/treadling/tieup z danych AI (powielaj jeśli za krótkie)
-      function tileArray(arr,targetLen){
-        if(!arr||!arr.length)return Array(targetLen).fill(0);
-        const out=[];
-        for(let i=0;i<targetLen;i++) out.push(arr[i%arr.length]);
-        return out;
-      }
-      function clampArray(arr,maxVal){
-        return arr.map(v=>Math.max(0,Math.min(maxVal-1,parseInt(v)||0)));
-      }
-
+      const minNi=p.min_nicielnice||recNi;
+      const minNp=p.min_pedalow||recNp;
       const useNi=Math.max(ni,minNi);
       const useNp=Math.max(np,minNp);
+      const needsMore=(minNi>ni||minNp>np);
 
-      // Threading: powiel motyw do pełnej długości n, ogranicz do useNi nicielnic
-      let th=tileArray(p.threading,n);
-      th=clampArray(th,useNi);
-
-      // Treadling: powiel motyw do pełnej długości m, ogranicz do useNp pedałów
-      let tr=tileArray(p.treadling,m);
-      tr=clampArray(tr,useNp);
-
-      // Tieup: użyj z AI lub zbuduj identyczność jeśli brakuje
+      let th=clampArray(tileArray(p.threading,n),useNi);
+      let tr=clampArray(tileArray(p.treadling,m),useNp);
       let tu;
       if(p.tieup&&p.tieup.length){
         tu=Array.from({length:useNi},(_,s)=>
@@ -1382,34 +1431,29 @@ Zasady:
             return row?(row[t%row.length]?1:0):0;
           })
         );
-      } else {
-        tu=makeTieup(useNi,useNp);
-      }
+      } else { tu=makeTieup(useNi,useNp); }
 
       const card=document.createElement('div'); card.className='prop-card';
-      const warnHtml=needsMore
-        ?`<div style="color:#f39c12;font-size:10px;margin-top:3px">⚠ Wymaga min. ${minNi} nicielnic × ${minNp} pedałów${(minNi>ni||minNp>np)?' – zostanie automatycznie dostosowane':''}</div>`
-        :'<div style="color:#2ecc71;font-size:10px;margin-top:3px">✓ Pasuje do bieżących ustawień ('+ni+'×'+np+')</div>';
-      card.innerHTML=`<h4>${idx+1}. ${p.label}</h4><p>${p.opis}</p>${warnHtml}`;
-
+      const badge=needsMore
+        ?`<div style="color:#f39c12;font-size:10px;margin-top:3px">⚠ Wymaga ${minNi}×${minNp} – zostanie dostosowane</div>`
+        :`<div style="color:#2ecc71;font-size:10px;margin-top:3px">✓ Pasuje do ${ni}×${np}</div>`;
+      card.innerHTML=`<h4>${idx+1}. ${p.label}</h4><p>${p.opis}</p>${badge}`;
       card.onclick=()=>{
-        // Jeśli wzór wymaga więcej nicielnic/pedałów – zaktualizuj
-        if(minNi>ni||minNp>np){
-          const newNi=Math.max(ni,minNi);
-          const newNp=Math.max(np,minNp);
-          nicielnice=newNi; pedalyN=newNp;
-          document.getElementById('nicielnice').value=newNi;
-          document.getElementById('pedalyN').value=newNp;
+        if(needsMore){
+          nicielnice=useNi; pedalyN=useNp;
+          document.getElementById('nicielnice').value=useNi;
+          document.getElementById('pedalyN').value=useNp;
         }
         threading=th; tieup=tu; treadling=tr;
         initWarpColors(); initWeftColors();
-        const pn=Math.min(rozmiar,MAX_PREVIEW),pm2=Math.min(weftRows,MAX_PREVIEW);
-        drawdown=calcDrawdown(threading,treadling,tieup,pn,pm2,nicielnice,pedalyN);
+        const pn2=Math.min(rozmiar,MAX_PREVIEW),pm2=Math.min(weftRows,MAX_PREVIEW);
+        drawdown=calcDrawdown(threading,treadling,tieup,pn2,pm2,nicielnice,pedalyN);
         renderSchema();renderPreview();buildInstructions();updateStatusBar();
-        document.getElementById('analysisStatus').textContent='✓ Zastosowano: '+p.label;
+        document.getElementById('analysisStatus').innerHTML=`Wzór: <strong>${wzorInfo.typ_splotu||''}</strong> ${wzorInfo.motyw||''}<br>✓ Zastosowano: ${p.label}`;
       };
       list.appendChild(card);
     });
+
   }catch(err){
     setProgress(0,'Błąd: '+err.message);
     console.error(err);
