@@ -387,7 +387,7 @@ function undo() {
   document.getElementById('pedalyN').value = pedalyN;
   const pn=Math.min(rozmiar,MAX_PREVIEW), pm=Math.min(weftRows,MAX_PREVIEW);
   drawdown = calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
-  editingPanel=null; updateEditButtons(); renderSchema(); renderPreview(); buildInstructions();
+  editingPanel=null; updateEditButtons(); renderSchema(); renderPreview(); buildInstructions(); updateStatusBar();
   rebuildColorSwatches();
   const btn = document.getElementById('btnUndo');
   if(btn){
@@ -714,6 +714,24 @@ function generate(best=false) {
 
 function getPreviewSize(){return{pn:Math.min(rozmiar,MAX_PREVIEW),pm:Math.min(weftRows,MAX_PREVIEW)};}
 
+function updateStatusBar() {
+  const {pn,pm}=getPreviewSize();
+  const mx=maxPrzeplot(drawdown,pn,pm);
+  const ones=drawdown.flat().filter(v=>v===1).length;
+  const total=drawdown.length*(drawdown[0]||[]).length;
+  const pokrycie=total>0?Math.round(ones/total*100):0;
+  document.getElementById('statOsnowa').textContent=rozmiar+' nitek';
+  document.getElementById('statWatek').textContent=weftRows+' rzędów';
+  document.getElementById('statTieup').textContent=nicielnice+'×'+pedalyN;
+  document.getElementById('statMax').textContent=mx;
+  document.getElementById('statPokrycie').textContent=pokrycie+'%';
+  document.getElementById('statValid').innerHTML=mx<=maxFloat
+    ?'<span class="badge badge-ok">✓ Poprawny przeplot</span>'
+    :'<span class="badge badge-err">⚠ Przeplot za duży</span>';
+  if(rozmiar>MAX_PREVIEW) document.getElementById('statValid').innerHTML+=
+    ' <span class="badge badge-info">Podgląd '+pn+'/'+rozmiar+' nitek</span>';
+}
+
 function drawGrid(cv,rows,cols,getFill) {
   const ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
   for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
@@ -800,7 +818,7 @@ function handleEdit(e,cv){
     treadling[pm-1-r]=paintVal;
   }
   drawdown=calcDrawdown(threading,treadling,tieup,Math.min(rozmiar,MAX_PREVIEW),Math.min(weftRows,MAX_PREVIEW),ni,np);
-  renderSchema();renderPreview();
+  renderSchema();renderPreview();updateStatusBar();
 }
 
 function toggleEdit(panel){editingPanel=editingPanel===panel?null:panel;updateEditButtons();renderSchema();}
@@ -906,7 +924,7 @@ function importWIF(text) {
   const pn=Math.min(rozmiar,MAX_PREVIEW),pm=Math.min(weftRows,MAX_PREVIEW);
   drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
   initWarpColors(); initWeftColors();
-  editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();
+  editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();updateStatusBar();
   document.getElementById('importStatus').textContent='✓ Wczytano WIF: '+ni+' nicielnic, '+np+' pedałów, '+warpThreads+' nitek';
 }
 
@@ -1036,7 +1054,7 @@ function importTWA(text) {
   document.getElementById('pedalyN').value=pedalyN;
   const pn=Math.min(rozmiar,MAX_PREVIEW),pm=Math.min(weftRows,MAX_PREVIEW);
   drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
-  editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();
+  editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();updateStatusBar();
   document.getElementById('importStatus').textContent='✓ Wczytano TWA: '+ni+' nicielnic, '+np+' pedałów, '+warpThreads+' nitek';
 }
 
@@ -1098,7 +1116,7 @@ function reduceDraft() {
   drawdown=newDD;
   document.getElementById('nicielnice').value=nicielnice;
   document.getElementById('pedalyN').value=pedalyN;
-  editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();
+  editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();updateStatusBar();
 
   const mxOk=mx<=maxFloat;
   statusEl.innerHTML='✓ Zredukowano do '+targetNi+'×'+targetNp+
@@ -1196,7 +1214,7 @@ if(window.electronAPI){
     initWarpColors(); initWeftColors(); ensureColors();
     const pn=Math.min(rozmiar,MAX_PREVIEW),pm=Math.min(weftRows,MAX_PREVIEW);
     drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
-    editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();
+    editingPanel=null;updateEditButtons();renderSchema();renderPreview();buildInstructions();updateStatusBar();
   });
   window.electronAPI.onMenuClear(panel=>{
     if(panel==='threading')threading=Array(rozmiar).fill(0);
@@ -1296,7 +1314,7 @@ async function analyzeWithAI(base64){
         threading=p.threading;tieup=p.tieup;treadling=p.treadling;
         const pn=Math.min(rozmiar,MAX_PREVIEW),pm=Math.min(weftRows,MAX_PREVIEW);
         drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
-        renderSchema();renderPreview();buildInstructions();
+        renderSchema();renderPreview();buildInstructions();updateStatusBar();
         document.getElementById('analysisStatus').textContent='✓ Zastosowano: '+p.label;
       };
       list.appendChild(card);
@@ -1573,6 +1591,7 @@ function autoFixFloats() {
 
   renderSchema();
   renderPreview();
+  updateStatusBar();
 
   const mx=maxPrzeplot(drawdown,pn,pm);
   const remaining=collectFloats(drawdown).length;
