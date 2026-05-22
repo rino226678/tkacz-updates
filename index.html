@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- version: 10 -->
+<!-- version: 11 -->
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -1291,7 +1291,33 @@ async function analyzeWithAI(base64){
     const np=parseInt(document.getElementById('pedalyN').value)||8;
     const n=parseInt(document.getElementById('rozmiar').value)||32;
     const m=parseInt(document.getElementById('weftRows').value)||32;
-    const prompt='Jestes ekspertem od tkactwa. Przeanalizuj strukture tej tkaniny i podaj 3 propozycje schematu tkackiego. Odpowiedz TYLKO czystym JSON bez zadnych innych znakow ani markdown. Format: {"proposals":[{"label":"nazwa po polsku","threading":"typ","treadling":"typ","tieup":"typ","opis":"opis po polsku"}]}. Dostepne threading: jodełka, skos, skos_wsteczny, satyna, advancing, undulating, ms_ws, crackle, overshot, shadow, turned, rosepath, wall_of_troy. Dostepne treadling: geometryczny, skos, symetryczny, advancing, retreating, ms_ws, overshot, rosepath, wall_of_troy, bloki. Dostepne tieup: plain, twill22, twill31, twill13, twill21, twill12, hopsack, satin, satin5, diamond, herringbone, rosepath, crackle, shadow, msws, overshot, zigzag, blocks. Dobierz tieup odpowiedni do wybranego threadingu i treadlingu – np. dla overshot threading uzyj overshot tieup, dla jodełki uzyj twill22 lub herringbone, dla rosepath uzyj rosepath tieup. Podaj 3 rozne propozycje pasujace do wzoru na zdjeciu.';
+
+    const prompt=`Jestes ekspertem od tkactwa. Przeanalizuj dokladnie strukture tej tkaniny i odtworz jej draft tkacki.
+
+Zwroc TYLKO czysty JSON (bez markdown, bez komentarzy). Format:
+{
+  "proposals": [
+    {
+      "label": "nazwa po polsku",
+      "opis": "krotki opis wzoru",
+      "min_nicielnice": 8,
+      "min_pedalow": 8,
+      "threading": [0,1,2,3,1,2,3,0,1,2,3,1,2,3,0,1],
+      "tieup": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+      "treadling": [0,1,2,3,2,1,0,1,2,3,2,1,0,1,2,3]
+    }
+  ]
+}
+
+Zasady:
+- Podaj 3 propozycje od najprostszej do najbardziej zlozone
+- threading: tablica dlugosci ${n}, wartosci 0..min_nicielnice-1, indeks nicielnic dla kazdej nitki osnowy
+- tieup: macierz min_nicielnice x min_pedalow, wartosci 0 lub 1
+- treadling: tablica dlugosci ${m}, wartosci 0..min_pedalow-1, indeks pedalu dla kazdego rzedego watku
+- min_nicielnice i min_pedalow: minimalna liczba nicielnic/pedalow potrzebna do oddania tego wzoru (np. plain=2, twill=4, overshot=8+)
+- Staraj sie realnie odtworzyc wzor ze zdjecia, nie podawaj losowych wartosci
+- Wzory powielaja sie, wiec threading i treadling moga byc krotszym powtarzajacym sie motywem powielonym do dlugosci ${n}/${m}`;
+
     const response=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{
@@ -1302,7 +1328,7 @@ async function analyzeWithAI(base64){
       },
       body:JSON.stringify({
         model:'claude-opus-4-5',
-        max_tokens:1024,
+        max_tokens:4096,
         messages:[{role:'user',content:[
           {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
           {type:'text',text:prompt}
@@ -1315,22 +1341,70 @@ async function analyzeWithAI(base64){
     const jsonMatch=text.match(/\{[\s\S]*\}/);
     if(!jsonMatch)throw new Error('AI nie zwróciło JSON');
     const parsed=JSON.parse(jsonMatch[0]);
-    const proposals=parsed.proposals.map(p=>({
-      label:p.label,desc:p.opis,
-      threading:makeThreading(p.threading,n,ni),
-      treadling:makeTreadling(p.treadling,m,np),
-      tieup:makeTieupByName(p.tieup||'random',ni,np)
-    }));
+
     setProgress(0,'');
     document.getElementById('analysisStatus').textContent='Wybierz propozycję:';
     const list=document.getElementById('proposalsList'); list.innerHTML='';
-    proposals.forEach((p,idx)=>{
+
+    parsed.proposals.forEach((p,idx)=>{
+      const minNi=p.min_nicielnice||8;
+      const minNp=p.min_pedalow||8;
+      const needsMore=(minNi>ni||minNp>np);
+
+      // Zbuduj threading/treadling/tieup z danych AI (powielaj jeśli za krótkie)
+      function tileArray(arr,targetLen){
+        if(!arr||!arr.length)return Array(targetLen).fill(0);
+        const out=[];
+        for(let i=0;i<targetLen;i++) out.push(arr[i%arr.length]);
+        return out;
+      }
+      function clampArray(arr,maxVal){
+        return arr.map(v=>Math.max(0,Math.min(maxVal-1,parseInt(v)||0)));
+      }
+
+      const useNi=Math.max(ni,minNi);
+      const useNp=Math.max(np,minNp);
+
+      // Threading: powiel motyw do pełnej długości n, ogranicz do useNi nicielnic
+      let th=tileArray(p.threading,n);
+      th=clampArray(th,useNi);
+
+      // Treadling: powiel motyw do pełnej długości m, ogranicz do useNp pedałów
+      let tr=tileArray(p.treadling,m);
+      tr=clampArray(tr,useNp);
+
+      // Tieup: użyj z AI lub zbuduj identyczność jeśli brakuje
+      let tu;
+      if(p.tieup&&p.tieup.length){
+        tu=Array.from({length:useNi},(_,s)=>
+          Array.from({length:useNp},(_,t)=>{
+            const row=p.tieup[s%p.tieup.length];
+            return row?(row[t%row.length]?1:0):0;
+          })
+        );
+      } else {
+        tu=makeTieup(useNi,useNp);
+      }
+
       const card=document.createElement('div'); card.className='prop-card';
-      card.innerHTML='<h4>'+(idx+1)+'. '+p.label+'</h4><p>'+p.desc+'</p>';
+      const warnHtml=needsMore
+        ?`<div style="color:#f39c12;font-size:10px;margin-top:3px">⚠ Wymaga min. ${minNi} nicielnic × ${minNp} pedałów${(minNi>ni||minNp>np)?' – zostanie automatycznie dostosowane':''}</div>`
+        :'<div style="color:#2ecc71;font-size:10px;margin-top:3px">✓ Pasuje do bieżących ustawień ('+ni+'×'+np+')</div>';
+      card.innerHTML=`<h4>${idx+1}. ${p.label}</h4><p>${p.opis}</p>${warnHtml}`;
+
       card.onclick=()=>{
-        threading=p.threading;tieup=p.tieup;treadling=p.treadling;
-        const pn=Math.min(rozmiar,MAX_PREVIEW),pm=Math.min(weftRows,MAX_PREVIEW);
-        drawdown=calcDrawdown(threading,treadling,tieup,pn,pm,nicielnice,pedalyN);
+        // Jeśli wzór wymaga więcej nicielnic/pedałów – zaktualizuj
+        if(minNi>ni||minNp>np){
+          const newNi=Math.max(ni,minNi);
+          const newNp=Math.max(np,minNp);
+          nicielnice=newNi; pedalyN=newNp;
+          document.getElementById('nicielnice').value=newNi;
+          document.getElementById('pedalyN').value=newNp;
+        }
+        threading=th; tieup=tu; treadling=tr;
+        initWarpColors(); initWeftColors();
+        const pn=Math.min(rozmiar,MAX_PREVIEW),pm2=Math.min(weftRows,MAX_PREVIEW);
+        drawdown=calcDrawdown(threading,treadling,tieup,pn,pm2,nicielnice,pedalyN);
         renderSchema();renderPreview();buildInstructions();updateStatusBar();
         document.getElementById('analysisStatus').textContent='✓ Zastosowano: '+p.label;
       };
