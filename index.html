@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- version: 9 -->
+<!-- version: 10 -->
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -1291,7 +1291,7 @@ async function analyzeWithAI(base64){
     const np=parseInt(document.getElementById('pedalyN').value)||8;
     const n=parseInt(document.getElementById('rozmiar').value)||32;
     const m=parseInt(document.getElementById('weftRows').value)||32;
-    const prompt='Jestes ekspertem od tkactwa. Przeanalizuj strukture tej tkaniny i podaj 3 propozycje schematu tkackiego. Odpowiedz TYLKO czystym JSON bez zadnych innych znakow ani markdown. Format: {"proposals":[{"label":"nazwa po polsku","threading":"typ","treadling":"typ","opis":"opis po polsku"}]}. Dostepne threading: jodełka, skos, skos_wsteczny, satyna, advancing, undulating, ms_ws, crackle, overshot, shadow, turned, rosepath, wall_of_troy. Dostepne treadling: geometryczny, skos, symetryczny, advancing, retreating, ms_ws, overshot, rosepath, wall_of_troy, bloki. Podaj 3 rozne propozycje pasujace do wzoru na zdjeciu.';
+    const prompt='Jestes ekspertem od tkactwa. Przeanalizuj strukture tej tkaniny i podaj 3 propozycje schematu tkackiego. Odpowiedz TYLKO czystym JSON bez zadnych innych znakow ani markdown. Format: {"proposals":[{"label":"nazwa po polsku","threading":"typ","treadling":"typ","tieup":"typ","opis":"opis po polsku"}]}. Dostepne threading: jodełka, skos, skos_wsteczny, satyna, advancing, undulating, ms_ws, crackle, overshot, shadow, turned, rosepath, wall_of_troy. Dostepne treadling: geometryczny, skos, symetryczny, advancing, retreating, ms_ws, overshot, rosepath, wall_of_troy, bloki. Dostepne tieup: plain, twill22, twill31, twill13, twill21, twill12, hopsack, satin, satin5, diamond, herringbone, rosepath, crackle, shadow, msws, overshot, zigzag, blocks. Dobierz tieup odpowiedni do wybranego threadingu i treadlingu – np. dla overshot threading uzyj overshot tieup, dla jodełki uzyj twill22 lub herringbone, dla rosepath uzyj rosepath tieup. Podaj 3 rozne propozycje pasujace do wzoru na zdjeciu.';
     const response=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{
@@ -1319,7 +1319,7 @@ async function analyzeWithAI(base64){
       label:p.label,desc:p.opis,
       threading:makeThreading(p.threading,n,ni),
       treadling:makeTreadling(p.treadling,m,np),
-      tieup:makeTieup(ni,np)
+      tieup:makeTieupByName(p.tieup||'random',ni,np)
     }));
     setProgress(0,'');
     document.getElementById('analysisStatus').textContent='Wybierz propozycję:';
